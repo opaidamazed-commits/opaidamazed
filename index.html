@@ -238,6 +238,8 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--bdr);position:relative;
 .chat-xbtn{background:rgba(255,255,255,.08);border:1px solid var(--bdr);color:var(--c6);width:36px;height:36px;border-radius:50%;font-size:1.05rem;display:flex;align-items:center;justify-content:center;transition:all var(--tr)}
 .chat-xbtn:hover{background:var(--c3);color:#fff}
 .chat-msgs{flex:1;overflow-y:auto;padding:1.4rem;display:flex;flex-direction:column;gap:.9rem;scrollbar-width:thin;scrollbar-color:var(--c3) transparent}
+.typing-dots{display:inline-block;animation:typingPulse 1.1s infinite;letter-spacing:2px}
+@keyframes typingPulse{0%,100%{opacity:.3}50%{opacity:1}}
 .msg{display:flex;align-items:flex-end;gap:.45rem;max-width:82%;animation:msgIn .3s ease}
 @keyframes msgIn{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
 .msg.bot{align-self:flex-end;flex-direction:row-reverse}
@@ -1036,6 +1038,14 @@ function addMsg(from,html){
   d.innerHTML=`${from==='bot'?'<div class="msg-av">🤖</div>':''}<div class="msg-bub">${html}</div>${from==='user'?'<div class="msg-av" style="background:linear-gradient(135deg,var(--c4),var(--c6))">👤</div>':''}`;
   m.appendChild(d);m.scrollTop=m.scrollHeight;
 }
+function showTyping(){
+  hideTyping();
+  const m=document.getElementById('chatMsgs'),d=document.createElement('div');
+  d.className='msg bot';d.id='typingIndicator';
+  d.innerHTML=`<div class="msg-av">🤖</div><div class="msg-bub"><span class="typing-dots">●●●</span></div>`;
+  m.appendChild(d);m.scrollTop=m.scrollHeight;
+}
+function hideTyping(){const t=document.getElementById('typingIndicator');if(t)t.remove()}
 
 // Dynamic replies, loaded from Firebase (site/chatReplies) with hardcoded fallback text
 function getReplies(){
@@ -1047,6 +1057,54 @@ function getReplies(){
     تواصل:saved.تواصل||'📞 تواصل معايا مباشرة:<br><a href="https://wa.me/201223093974" target="_blank" style="color:var(--c6)">واتساب: 01223093974 👋</a><br><br>أنا هرد عليك في أقرب وقت!',
   };
 }
+// ===== AI CHAT (via Cloudflare Worker proxy — never call OpenRouter directly from the browser) =====
+const CHAT_WORKER_URL='https://REPLACE-WITH-YOUR-WORKER-URL.workers.dev'; // set this after deploying the worker (see deployment notes)
+const CHAT_SYSTEM_PROMPT=`إنت بوت مساعد على موقع عبيدة مزيد (Opaida Mazed)، مصمم جرافيك وصانع محتوى ومطور مواقع.
+رد باللهجة المصرية، بشكل ودود ومختصر (2-4 جمل عادةً).
+خدماته: تصميم جرافيك ولوجوهات وهوية بصرية، تصميم مواقع ويب، مونتاج فيديو.
+الأسعار التقريبية: لوجو من 200 جنيه، موقع ويب من 800 جنيه، هوية بصرية كاملة من 500 جنيه، المونتاج حسب المدة والتعقيد.
+مواعيد التسليم: لوجو 2-3 أيام، موقع ويب 5-14 يوم، هوية بصرية 5-7 أيام، مونتاج 1-3 أيام.
+للتواصل المباشر أو تفاصيل أكتر، حوّل العميل على واتساب: https://wa.me/201223093974
+لو حد سأل حاجة برة نطاق الخدمات دي، رد بلطف وارجعه لموضوع الخدمات أو التواصل على واتساب.`;
+let chatHistory=[];
+
+async function askAI(userText){
+  showTyping();
+  try{
+    const res=await fetch(CHAT_WORKER_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        messages:[
+          {role:'system',content:CHAT_SYSTEM_PROMPT},
+          ...chatHistory.slice(-8),
+          {role:'user',content:userText}
+        ]
+      })
+    });
+    if(!res.ok)throw new Error('bad response '+res.status);
+    const data=await res.json();
+    const reply=data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+    if(!reply)throw new Error('empty reply');
+    hideTyping();
+    chatHistory.push({role:'user',content:userText},{role:'assistant',content:reply});
+    addMsg('bot',reply.replace(/\n/g,'<br>'));
+    playSuccess();
+  }catch(e){
+    hideTyping();
+    fallbackReply(userText);
+  }
+}
+function fallbackReply(t){
+  const REPLIES=getReplies();
+  const l=t.toLowerCase();
+  let r='شكراً على رسالتك! 😊 تواصل معايا مباشرة:<br><a href="https://wa.me/201223093974" target="_blank" style="color:var(--c6)">wa.me/201223093974</a>';
+  if(/خدم|عمل|شغل/.test(l))r=REPLIES.خدمات;
+  else if(/سعر|كام|تكلف|فلوس/.test(l))r=REPLIES.أسعار;
+  else if(/تسليم|وقت|متى|مدة/.test(l))r=REPLIES.تسليم;
+  else if(/تواصل|واتساب|تليفون|رقم/.test(l))r=REPLIES.تواصل;
+  addMsg('bot',r);playSuccess();
+}
 function qSend(k){
   const labels={خدمات:'🎨 الخدمات',أسعار:'💰 الأسعار',تسليم:'⏰ التسليم',تواصل:'📞 تواصل'};
   addMsg('user',labels[k]||k);playClick();
@@ -1056,14 +1114,7 @@ function qSend(k){
 function sendMsg(){
   const inp=document.getElementById('chatInp'),t=inp.value.trim();
   if(!t)return;addMsg('user',t);inp.value='';playClick();
-  const REPLIES=getReplies();
-  const l=t.toLowerCase();
-  let r='شكراً على رسالتك! 😊 تواصل معايا مباشرة:<br><a href="https://wa.me/201223093974" target="_blank" style="color:var(--c6)">wa.me/201223093974</a>';
-  if(/خدم|عمل|شغل/.test(l))r=REPLIES.خدمات;
-  else if(/سعر|كام|تكلف|فلوس/.test(l))r=REPLIES.أسعار;
-  else if(/تسليم|وقت|متى|مدة/.test(l))r=REPLIES.تسليم;
-  else if(/تواصل|واتساب|تليفون|رقم/.test(l))r=REPLIES.تواصل;
-  setTimeout(()=>{addMsg('bot',r);playSuccess()},700);
+  askAI(t);
 }
 
 // ===== SCROLL TO TOP =====
