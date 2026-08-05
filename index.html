@@ -1058,7 +1058,7 @@ function getReplies(){
   };
 }
 // ===== AI CHAT (via Cloudflare Worker proxy — never call OpenRouter directly from the browser) =====
-const CHAT_WORKER_URL='https://opaida-chat-proxy-URL.workers.dev'; // set this after deploying the worker (see deployment notes)
+const CHAT_WORKER_URL='https://opaida-chat-proxy.opaidamazed.workers.dev/'; // set this after deploying the worker (see deployment notes)
 const CHAT_SYSTEM_PROMPT=`إنت بوت مساعد على موقع عبيدة مزيد (Opaida Mazed)، مصمم جرافيك وصانع محتوى ومطور مواقع.
 رد باللهجة المصرية، بشكل ودود ومختصر (2-4 جمل عادةً).
 خدماته: تصميم جرافيك ولوجوهات وهوية بصرية، تصميم مواقع ويب، مونتاج فيديو.
